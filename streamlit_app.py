@@ -171,7 +171,6 @@ if "user" in st.session_state:
         response = supabase.table("parts").select("*").execute()
         df = pd.DataFrame(response.data or [])
 
-        # Ensure expected columns are present
         expected_columns = ["part_number", "description", "category", "user", "stock_qnt"]
         for col in expected_columns:
             if col not in df.columns:
@@ -183,6 +182,53 @@ if "user" in st.session_state:
             st.warning("No parts found in the inventory.")
         else:
             st.dataframe(df_display)
+
+    # -----------------------------
+    # Inventory Management
+    # -----------------------------
+    elif selected == "Inventory Management":
+        st.subheader("📋 Editable Inventory Table")
+
+        response = supabase.table("parts").select("part_number, description, category, stock_qnt").execute()
+        df = pd.DataFrame(response.data or [])
+
+        if df.empty:
+            st.warning("No parts available to manage.")
+        else:
+            df["part_number"] = df["part_number"].astype(str)
+            editable_df = df.set_index("part_number")
+            edited_df = st.data_editor(editable_df, num_rows="dynamic", use_container_width=True, key="inventory_editor")
+
+            if st.button("💾 Save Changes"):
+                updates = []
+                changed_by = user_email
+
+                for idx in edited_df.index:
+                    for col in ["description", "category", "stock_qnt"]:
+                        if idx in df["part_number"].values:
+                            old_value = df[df["part_number"] == idx][col].values[0] if col in df.columns else None
+                        else:
+                            old_value = None
+                        new_value = edited_df.loc[idx, col] if col in edited_df.columns else None
+                        if new_value != old_value:
+                            updates.append((idx, col, new_value))
+
+                if updates:
+                    for part_number, col, new_value in updates:
+                        try:
+                            res = supabase.table("parts").update({col: int(new_value.item()) if hasattr(new_value, 'item') and col == "stock_qnt" else new_value}).eq("part_number", str(part_number)).execute()
+                            if res.data:
+                                st.info(f"✅ Updated {part_number} → {col} = {new_value}")
+                            else:
+                                st.warning(f"⚠️ No update returned for {part_number} → {col}")
+                        except Exception as e:
+                            st.error(f"Failed to update {part_number} → {col}: {e}")
+                    st.success(f"✅ Saved {len(updates)} updates.")
+                    st.info("🔄 Refresh the page manually or use the button below to reload.")
+                    if st.button("🔁 Click to Refresh Now"):
+                        st.rerun()
+                else:
+                    st.info("No changes detected.")
 
     # -----------------------------
     # Forms - Add New Part
@@ -206,7 +252,7 @@ if "user" in st.session_state:
             submitted = st.form_submit_button("Add Part")
 
             if submitted and part_number:
-                response = supabase.table("parts").select("id").eq("part_number", part_number).execute()
+                response = supabase.table("parts").select("part_number").eq("part_number", part_number).execute()
                 if response.data:
                     st.error("❌ Part number already exists.")
                 else:
