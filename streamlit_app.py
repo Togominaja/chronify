@@ -12,6 +12,23 @@ import streamlit as st
 # Page Setup
 # -----------------------------
 st.set_page_config(page_title="Chronify", layout="wide")
+
+# Apply dark background styling
+st.markdown("""
+    <style>
+    body, .stApp {
+        background-color: black !important;
+        color: white !important;
+    }
+    .block-container {
+        background-color: black !important;
+    }
+    .css-1v0mbdj, .css-1d391kg, .st-bx {
+        background-color: black !important;
+        color: white !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
@@ -36,11 +53,11 @@ if os.getenv("DEV_MODE", "false") == "true":
 # Auth UI
 # -----------------------------
 if "user" not in st.session_state:
-    st.title("\U0001F512 Chronify Access")
+    st.title("Chronify Access")
 
-    auth_mode = st.radio("Select Mode", ["Sign In", "Sign Up"], horizontal=True)
-    email = st.text_input("Email", value="test@test.com").strip()
-    password = st.text_input("Password", type="password", value="123")
+    auth_mode = st.radio("Select Mode", ["Log In", "Sign Up"], horizontal=True)
+    email = st.text_input("Email", value="sbravatti.nelson@gmail.com").strip()
+    password = st.text_input("Password", type="password", value="Nsbrava1430!")
     first_name = last_name = password_confirm = ""
 
     if auth_mode == "Sign Up":
@@ -48,8 +65,8 @@ if "user" not in st.session_state:
         last_name = st.text_input("Last Name").strip()
         password_confirm = st.text_input("Confirm Password", type="password")
 
-    if auth_mode == "Sign In":
-        if st.button("Sign In"):
+    if auth_mode == "Log In":
+        if st.button("Log In"):
             try:
                 response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if response.user:
@@ -114,7 +131,7 @@ if "user" not in st.session_state:
 # -----------------------------
 if "user" in st.session_state:
     user_email = st.session_state["user"].email
-    st.sidebar.success(f"🔐 Logged in as: {user_email}")
+    st.sidebar.success(f"Logged in as: {user_email}")
 
     with st.sidebar:
         selected = option_menu(
@@ -187,7 +204,7 @@ if "user" in st.session_state:
     # Inventory Management
     # -----------------------------
     elif selected == "Inventory Management":
-        st.subheader("📋 Editable Inventory Table")
+        st.subheader("📋 Editable & Sortable Inventory Table")
 
         response = supabase.table("parts").select("part_number, description, category, stock_qnt").execute()
         df = pd.DataFrame(response.data or [])
@@ -199,27 +216,24 @@ if "user" in st.session_state:
             sort_column = st.selectbox("Sort by column", ["description", "category", "stock_qnt"])
             sort_order = st.radio("Sort order", ["Ascending", "Descending"], horizontal=True)
             ascending = sort_order == "Ascending"
+            editable_df = df.sort_values(by=sort_column, ascending=ascending).set_index("part_number")
 
-            editable_df = df.set_index("part_number").sort_values(by=sort_column, ascending=ascending)
             edited_df = st.data_editor(
                 editable_df,
                 num_rows="dynamic",
-                use_container_width=True,
                 key="inventory_editor",
                 column_order=["description", "category", "stock_qnt"],
                 column_config={
                     "stock_qnt": st.column_config.NumberColumn("Stock Quantity", min_value=0),
                 },
                 hide_index=False,
-                disabled=False
+                disabled=False,
+                use_container_width=True
             )
 
-            st.markdown("---")
-            st.markdown("🔍 **Sortable Preview**")
-            st.dataframe(editable_df.reset_index())
-
-            if st.button("💾 Save Changes"):
+            if st.button("Save Changes"):
                 updates = []
+                logs = []
                 changed_by = user_email
 
                 for idx in edited_df.index:
@@ -232,6 +246,16 @@ if "user" in st.session_state:
                         if new_value != old_value:
                             updates.append((idx, col, new_value))
 
+                            # capture a snapshot for logging
+                            logs.append({
+                                "part_number": idx,
+                                "description": edited_df.loc[idx, "description"],
+                                "category": edited_df.loc[idx, "category"],
+                                "stock_qnt": int(new_value.item()) if hasattr(new_value, 'item') else int(new_value),
+                                "user": changed_by,
+                                "timestamp": datetime.now().isoformat()
+                            })
+
                 if updates:
                     for part_number, col, new_value in updates:
                         try:
@@ -242,12 +266,37 @@ if "user" in st.session_state:
                                 st.warning(f"⚠️ No update returned for {part_number} → {col}")
                         except Exception as e:
                             st.error(f"Failed to update {part_number} → {col}: {e}")
+
+                    try:
+                        supabase.table("stock_history").insert(logs).execute()
+                        st.success(f"📝 {len(logs)} change(s) logged to Stock History.")
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not log changes to stock_history: {e}")
+
                     st.success(f"✅ Saved {len(updates)} updates.")
                     st.info("🔄 Refresh the page manually or use the button below to reload.")
                     if st.button("🔁 Click to Refresh Now"):
                         st.rerun()
                 else:
                     st.info("No changes detected.")
+
+    # -----------------------------
+    # Stock History
+    # -----------------------------
+    elif selected == "Stock History":
+        st.subheader("📊 Stock Change Log")
+
+        try:
+            response = supabase.table("stock_history").select("*").order("timestamp", desc=True).execute()
+            df = pd.DataFrame(response.data or [])
+
+            if df.empty:
+                st.info("No stock changes have been logged yet.")
+            else:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                st.dataframe(df[["timestamp", "part_number", "description", "category", "stock_qnt", "user"]])
+        except Exception as e:
+            st.error(f"❌ Failed to load stock history: {e}")
 
     # -----------------------------
     # Forms - Add New Part
