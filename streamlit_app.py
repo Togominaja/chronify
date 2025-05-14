@@ -196,8 +196,27 @@ if "user" in st.session_state:
             st.warning("No parts available to manage.")
         else:
             df["part_number"] = df["part_number"].astype(str)
-            editable_df = df.set_index("part_number")
-            edited_df = st.data_editor(editable_df, num_rows="dynamic", use_container_width=True, key="inventory_editor")
+            sort_column = st.selectbox("Sort by column", ["description", "category", "stock_qnt"])
+            sort_order = st.radio("Sort order", ["Ascending", "Descending"], horizontal=True)
+            ascending = sort_order == "Ascending"
+
+            editable_df = df.set_index("part_number").sort_values(by=sort_column, ascending=ascending)
+            edited_df = st.data_editor(
+                editable_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="inventory_editor",
+                column_order=["description", "category", "stock_qnt"],
+                column_config={
+                    "stock_qnt": st.column_config.NumberColumn("Stock Quantity", min_value=0),
+                },
+                hide_index=False,
+                disabled=False
+            )
+
+            st.markdown("---")
+            st.markdown("🔍 **Sortable Preview**")
+            st.dataframe(editable_df.reset_index())
 
             if st.button("💾 Save Changes"):
                 updates = []
