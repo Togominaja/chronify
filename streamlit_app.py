@@ -177,7 +177,10 @@ if "user" in st.session_state:
         # -----------------------------
         if not df.empty:
             df["Status"] = df["stock_qnt"].apply(lambda x: "Low Stock" if x < 3 else "In Stock")
-            st.dataframe(df)
+            with st.container():
+                st.markdown("<div style='max-height:70vh; overflow:auto'>", unsafe_allow_html=True)
+                st.dataframe(df, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
     # -----------------------------
     # Inventory View
@@ -198,7 +201,7 @@ if "user" in st.session_state:
         if df_display.empty:
             st.warning("No parts found in the inventory.")
         else:
-            st.dataframe(df_display)
+            st.dataframe(df_display, use_container_width=True, height=600)
 
     # -----------------------------
     # Inventory Management
@@ -218,7 +221,9 @@ if "user" in st.session_state:
             ascending = sort_order == "Ascending"
             editable_df = df.sort_values(by=sort_column, ascending=ascending).set_index("part_number")
 
-            edited_df = st.data_editor(
+            with st.container():
+                st.markdown("<div style='max-height:70vh; overflow:auto'>", unsafe_allow_html=True)
+                edited_df = st.data_editor(
                 editable_df,
                 num_rows="dynamic",
                 key="inventory_editor",
@@ -294,7 +299,7 @@ if "user" in st.session_state:
                 st.info("No stock changes have been logged yet.")
             else:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
-                st.dataframe(df[["timestamp", "part_number", "description", "category", "stock_qnt", "user"]])
+                st.dataframe(df[["timestamp", "part_number", "description", "category", "stock_qnt", "user"]], use_container_width=True, height=600)
         except Exception as e:
             st.error(f"❌ Failed to load stock history: {e}")
 
