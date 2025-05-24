@@ -135,7 +135,7 @@ if "user" in st.session_state:
 
     with st.sidebar:
         selected = option_menu(
-            menu_title="CHRONIFY",
+            menu_title="Logan Industries",
             options=["Home", "Forms", "Inventory View", "Inventory Management", "Stock History"],
             icons=["house", "file-earmark-plus", "list-ul", "gear", "clock-history"],
             menu_icon="boxes",
@@ -152,8 +152,8 @@ if "user" in st.session_state:
     # Home Dashboard
     # -----------------------------
     if selected == "Home":
-        st.title("Chronify")
-        st.caption("Logan Industries")
+        st.title("Chronify Dashboard")
+        st.markdown("Welcome to your centralized inventory overview.")
 
         response = supabase.table("parts").select("*").execute()
         df = pd.DataFrame(response.data or [])
@@ -167,19 +167,20 @@ if "user" in st.session_state:
         total_value = df["stock_value"].sum()
         low_stock = len(df[df["stock_qnt"] < 3])
 
+        st.markdown("### 🧮 Key Stats")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Products", total_items)
-        col2.metric("Stock Value", f"${total_value:,.2f}")
-        col3.metric("Low Stock Items", low_stock)
+        col1.metric("📦 Total Products", total_items)
+        col2.metric("💰 Stock Value", f"${total_value:,.2f}")
+        col3.metric("⚠️ Low Stock Items", low_stock)
 
-        # -----------------------------
-        # Inventory Table Display
-        # -----------------------------
+        st.markdown("---")
+        st.markdown("### 📋 Inventory Snapshot")
         if not df.empty:
             df["Status"] = df["stock_qnt"].apply(lambda x: "Low Stock" if x < 3 else "In Stock")
             with st.container():
                 st.markdown("<div style='max-height:70vh; overflow:auto'>", unsafe_allow_html=True)
                 st.dataframe(df, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
     # -----------------------------
@@ -224,17 +225,17 @@ if "user" in st.session_state:
             with st.container():
                 st.markdown("<div style='max-height:70vh; overflow:auto'>", unsafe_allow_html=True)
                 edited_df = st.data_editor(
-                editable_df,
-                num_rows="dynamic",
-                key="inventory_editor",
-                column_order=["description", "category", "stock_qnt"],
-                column_config={
-                    "stock_qnt": st.column_config.NumberColumn("Stock Quantity", min_value=0),
-                },
-                hide_index=False,
-                disabled=False,
-                use_container_width=True
-            )
+                    editable_df,
+                    num_rows="dynamic",
+                    key="inventory_editor",
+                    column_order=["description", "category", "stock_qnt"],
+                    column_config={
+                        "stock_qnt": st.column_config.NumberColumn("Stock Quantity", min_value=0),
+                    },
+                    hide_index=False,
+                    disabled=False,
+                    use_container_width=True
+                )
 
             if st.button("Save Changes"):
                 updates = []
@@ -251,20 +252,45 @@ if "user" in st.session_state:
                         if new_value != old_value:
                             updates.append((idx, col, new_value))
 
-                            # capture a snapshot for logging
-                            logs.append({
-                                "part_number": idx,
-                                "description": edited_df.loc[idx, "description"],
-                                "category": edited_df.loc[idx, "category"],
-                                "stock_qnt": int(new_value.item()) if hasattr(new_value, 'item') else int(new_value),
-                                "user": changed_by,
-                                "timestamp": datetime.now().isoformat()
-                            })
+                            if col == "stock_qnt":
+                                try:
+                                    stock_qnt_val = int(new_value.item()) if hasattr(new_value, 'item') else int(new_value)
+                                except (ValueError, TypeError):
+                                    st.warning(f"⚠️ Invalid stock quantity for part {idx}: {new_value}. Defaulting to 0.")
+                                    stock_qnt_val = 0
+                                logs.append({
+                                    "part_number": idx,
+                                    "description": edited_df.loc[idx, "description"],
+                                    "category": edited_df.loc[idx, "category"],
+                                    "stock_qnt": stock_qnt_val,
+                                    "user": changed_by,
+                                    "timestamp": datetime.now().isoformat()
+                                })
+                            else:
+                                logs.append({
+                                    "part_number": idx,
+                                    "description": edited_df.loc[idx, "description"],
+                                    "category": edited_df.loc[idx, "category"],
+                                    "stock_qnt": df[df["part_number"] == idx]["stock_qnt"].values[0],
+                                    "user": changed_by,
+                                    "timestamp": datetime.now().isoformat()
+                                })
 
                 if updates:
                     for part_number, col, new_value in updates:
                         try:
-                            res = supabase.table("parts").update({col: int(new_value.item()) if hasattr(new_value, 'item') and col == "stock_qnt" else new_value}).eq("part_number", str(part_number)).execute()
+                            if col == "stock_qnt":
+                                try:
+                                    safe_value = int(new_value.item()) if hasattr(new_value, 'item') else int(new_value)
+                                except (ValueError, TypeError):
+                                    st.warning(f"⚠️ Invalid stock quantity for part {part_number}: {new_value}. Defaulting to 0.")
+                                    safe_value = 0
+                                update_data = {col: safe_value}
+                            else:
+                                update_data = {col: new_value}
+
+                            res = supabase.table("parts").update(update_data).eq("part_number", str(part_number)).execute()
+
                             if res.data:
                                 st.info(f"✅ Updated {part_number} → {col} = {new_value}")
                             else:
@@ -289,7 +315,7 @@ if "user" in st.session_state:
     # Stock History
     # -----------------------------
     elif selected == "Stock History":
-        st.subheader("📊 Stock Change Log")
+        st.subheader("Stock Change Log")
 
         try:
             response = supabase.table("stock_history").select("*").order("timestamp", desc=True).execute()
@@ -299,9 +325,12 @@ if "user" in st.session_state:
                 st.info("No stock changes have been logged yet.")
             else:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
+                if "\"user\"" in df.columns:
+                    df.rename(columns={"\"user\"": "user"}, inplace=True)
                 st.dataframe(df[["timestamp", "part_number", "description", "category", "stock_qnt", "user"]], use_container_width=True, height=600)
         except Exception as e:
             st.error(f"❌ Failed to load stock history: {e}")
+
 
     # -----------------------------
     # Forms - Add New Part
